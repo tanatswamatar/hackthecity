@@ -1,0 +1,87 @@
+menu "Plug into the City Hackathon Configuration"
+
+    config HACK_WIFI_SSID
+        string "WiFi SSID"
+        default "Hack the City"
+        help
+            SSID of the WiFi network to connect to for the hackathon.
+
+    config HACK_WIFI_PASSWORD
+        string "WiFi Password"
+        default "L3tsBui1d!"
+        help
+            Password of the WiFi network. Leave empty for open networks.
+
+    config HACK_MAXIMUM_RETRY
+        int "WiFi Maximum Connection Retries"
+        default 10
+        help
+            Maximum retry attempts before signaling WiFi connection failure.
+
+    config HACK_BROKER_URL
+        string "MQTT Broker URI"
+        default "mqtt://192.168.101.123:1883"
+        help
+            URI of the MQTT broker (e.g. mqtt://CITY_HOST:1883 or mqtt://192.168.1.100:1883).
+
+    config HACK_TEAM_ID
+        string "Team Identifier"
+        default "rxld4"
+        help
+            Team identifier used in MQTT topic paths (hack/{team}/{device}/...).
+
+    config HACK_DEVICE_ID
+        string "Device Identifier"
+        default "stelsightx"
+        help
+            Device identifier used in MQTT topic paths (hack/{team}/{device}/...).
+
+    config FEEDBACK_LED_NORMAL_GPIO
+        int "Normal Mode LED GPIO"
+        default 2
+        help
+            GPIO pin number for Normal Mode visual feedback LED (GPIO 2 is onboard LED on ESP32 DevKit).
+
+    config FEEDBACK_LED_MAINT_GPIO
+        int "Maintenance Mode LED GPIO"
+        default 4
+        help
+            GPIO pin number for Maintenance Mode visual feedback LED.
+
+    config FEEDBACK_LED_EMERGENCY_GPIO
+        int "Emergency Mode LED GPIO"
+        default 21
+        help
+            GPIO pin number for Emergency Mode visual feedback LED.
+
+    config HC_SR04_TRIG_GPIO
+        int "HC-SR04 Trigger GPIO"
+        default 5
+        help
+            GPIO pin connected to HC-SR04 TRIG pin.
+
+    config HC_SR04_ECHO_GPIO
+        int "HC-SR04 Echo GPIO"
+        default 18
+        help
+            GPIO pin connected to HC-SR04 ECHO pin.
+
+    config DISTANCE_ALERT_LED_GPIO
+        int "Distance Alert LED GPIO"
+        default 2
+        help
+            GPIO pin number for LED that turns on when distance < 10cm (default 2 is onboard DevKit LED).
+
+    config PIR_HC_SR501_GPIO
+        int "HC-SR501 PIR Motion Sensor GPIO"
+        default 27
+        help
+            GPIO pin connected to HC-SR501 PIR motion sensor OUT pin (D27).
+
+    config RFP602_ADC_GPIO
+        int "RFP-602 Pressure/Weight Sensor ADC GPIO"
+        default 35
+        help
+            GPIO pin connected to RFP-602 weight sensor voltage divider output (ADC1 Channel 7 on GPIO 35).
+
+endmenu
