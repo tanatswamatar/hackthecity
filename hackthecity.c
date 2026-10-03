@@ -104,8 +104,13 @@ static const char *TAG = "hackthecity";
 #define CONFIG_RFP602_ADC_GPIO 35
 #endif
 
+#ifndef CONFIG_SEN0297_ADC_GPIO
+#define CONFIG_SEN0297_ADC_GPIO 34
+#endif
+
 #define DISTANCE_ALERT_THRESHOLD_CM 10.0f
 #define RFP602_ACTIVE_WEIGHT_THRESH_G 25.0f
+#define SEN0297_STEP_THRESH_MV 1000 /* Threshold for step detection in mV */
 
 /* -------------------------------------------------------------------------- */
 /*                       Mode & Visual Feedback Hooks                         */
@@ -559,6 +564,71 @@ static void rfp602_task(void *pvParameters)
 }
 
 /* -------------------------------------------------------------------------- */
+/*                     SEN0297 Thin Film Pressure Sensor                      */
+/* -------------------------------------------------------------------------- */
+
+static volatile uint32_t s_sen0297_steps = 0;
+static adc_cali_handle_t s_adc1_cali_handle_sen0297 = NULL;
+static bool s_adc1_calibrated_sen0297 = false;
+
+static void sen0297_init(void)
+{
+    /* s_adc1_handle is already initialized by rfp602_init */
+    adc_oneshot_chan_cfg_t chan_config = {
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+        .atten = ADC_ATTEN_DB_12,
+    };
+    /* GPIO 34 is ADC1 Channel 6 */
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc1_handle, ADC_CHANNEL_6, &chan_config));
+
+    s_adc1_calibrated_sen0297 = rfp602_adc_calibration_init(ADC_UNIT_1, ADC_CHANNEL_6, ADC_ATTEN_DB_12, &s_adc1_cali_handle_sen0297);
+
+    ESP_LOGI(TAG, "SEN0297 pressure sensor initialized on GPIO %d (ADC1 CH6)", CONFIG_SEN0297_ADC_GPIO);
+}
+
+static int sen0297_read_voltage_mv(void)
+{
+    int raw_accum = 0;
+    const int SAMPLES = 8;
+    for (int i = 0; i < SAMPLES; i++) {
+        int raw = 0;
+        adc_oneshot_read(s_adc1_handle, ADC_CHANNEL_6, &raw);
+        raw_accum += raw;
+    }
+    int raw_avg = raw_accum / SAMPLES;
+
+    int voltage_mv = 0;
+    if (s_adc1_calibrated_sen0297) {
+        adc_cali_raw_to_voltage(s_adc1_cali_handle_sen0297, raw_avg, &voltage_mv);
+    } else {
+        voltage_mv = (raw_avg * 3300) / 4095;
+    }
+    return voltage_mv;
+}
+
+static void sen0297_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "SEN0297 step measuring task started on GPIO %d", CONFIG_SEN0297_ADC_GPIO);
+    bool was_stepping = false;
+
+    while (1) {
+        int voltage_mv = sen0297_read_voltage_mv();
+        
+        bool is_stepping = (voltage_mv > SEN0297_STEP_THRESH_MV);
+
+        if (is_stepping && !was_stepping) {
+            was_stepping = true;
+            s_sen0297_steps++;
+            ESP_LOGI(TAG, "[SEN0297] >>> STEP DETECTED! Total steps: %" PRIu32 " (Voltage: %d mV) <<<", s_sen0297_steps, voltage_mv);
+        } else if (!is_stepping && was_stepping) {
+            was_stepping = false;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+/* -------------------------------------------------------------------------- */
 /*                           Wi-Fi Station Setup                              */
 /* -------------------------------------------------------------------------- */
 
@@ -823,10 +893,10 @@ static void telemetry_task(void *pvParameters)
 
         uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
 
-        char telemetry_payload[320];
+        char telemetry_payload[350];
         int len = snprintf(telemetry_payload, sizeof(telemetry_payload),
-                           "{\"metrics\": {\"uptime_s\": %" PRIu32 ", \"distance_cm\": %.1f, \"motion\": %s, \"weight_g\": %.1f, \"weight_duration_s\": %.1f, \"flow_lpm\": %.1f, \"pressure_kpa\": %d, \"tank_pct\": %d}}",
-                           uptime_s, s_distance_cm, s_pir_motion_detected ? "true" : "false", s_rfp602_weight_g, s_rfp602_duration_s, s_flow_lpm, s_pressure_kpa, s_tank_pct);
+                           "{\"metrics\": {\"uptime_s\": %" PRIu32 ", \"distance_cm\": %.1f, \"motion\": %s, \"weight_g\": %.1f, \"weight_duration_s\": %.1f, \"steps\": %" PRIu32 ", \"flow_lpm\": %.1f, \"pressure_kpa\": %d, \"tank_pct\": %d}}",
+                           uptime_s, s_distance_cm, s_pir_motion_detected ? "true" : "false", s_rfp602_weight_g, s_rfp602_duration_s, s_sen0297_steps, s_flow_lpm, s_pressure_kpa, s_tank_pct);
 
         if (s_mqtt_connected && s_mqtt_client != NULL) {
             int msg_id = esp_mqtt_client_publish(s_mqtt_client, s_topic_telemetry,
@@ -872,6 +942,9 @@ void app_main(void)
     /* Initialize RFP-602 weight sensor */
     rfp602_init();
 
+    /* Initialize SEN0297 pressure sensor */
+    sen0297_init();
+
     /* Spawn visual feedback task */
     xTaskCreate(visual_feedback_task, "visual_feedback", 2048, NULL, 3, NULL);
 
@@ -883,6 +956,9 @@ void app_main(void)
 
     /* Spawn RFP-602 weight and duration task */
     xTaskCreate(rfp602_task, "rfp602_task", 3072, NULL, 4, NULL);
+
+    /* Spawn SEN0297 step measuring task */
+    xTaskCreate(sen0297_task, "sen0297_task", 3072, NULL, 4, NULL);
 
     /* Establish Wi-Fi station connection */
     wifi_init_sta();
